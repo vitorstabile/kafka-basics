@@ -947,12 +947,12 @@ For a more isolated and reproducible environment, you can use Docker to set up K
 
 - **Install Docker**: If you don't have Docker installed, download and install it from the Docker website (https://www.docker.com/).
 
-- **Create a folder structure**: Add this [docker-compose.yml](https://github.com/vitorstabile/kafka-basics/blob/main/docker-compose.yml) file with this [deploy](https://github.com/vitorstabile/kafka-basics/tree/main/deploy/Docker/schema-registry) folder inside.
+- **Create a folder structure**: Add this [docker-compose.yml](https://github.com/vitorstabile/kafka-basics/blob/main/docker-compose.yml) file with this [deploy](https://github.com/vitorstabile/kafka-basics/tree/main/deploy/schema-registry) folder inside.
 
 ```
 kafka-docker/
 |
-|---deploy/Docker/schema-registry/jaasconfig/
+|---deploy/schema-registry/jaasconfig/
 |---docker-compose.yml
 ```
 

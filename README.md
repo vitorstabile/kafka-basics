@@ -776,25 +776,194 @@ for message in consumer:
 
 #### <a name="chapter1part5"></a>Chapter 1 - Part 5: Setting up a Local Kafka Development Environment
 
+Setting up a local Kafka development environment is crucial for experimenting with Kafka's features, testing your applications, and understanding its behavior without affecting a production system. This lesson will guide you through the process of setting up a single-broker Kafka environment on your local machine. We'll cover downloading and configuring Kafka, starting Zookeeper (Kafka's dependency), starting the Kafka broker, and performing basic operations like creating topics, producing messages, and consuming messages. This setup will serve as your playground for the upcoming modules where you'll delve deeper into Kafka producers, consumers, streams, and connect.
+
 #### <a name="chapter1part5.1"></a>Chapter 1 - Part 5.1: Prerequisites
+
+Before you begin, ensure you have the following installed on your system:
+
+- **Java Development Kit (JDK)**: Kafka is written in Java, so you need a JDK installed. Kafka 3.0 and later require Java 8 or later. It's recommended to use the latest LTS (Long Term Support) version of Java. You can download it from the Oracle website or use a package manager like apt (Linux) or brew (macOS).
+- **Operating System**: Kafka can run on various operating systems, including Linux, macOS, and Windows. The instructions provided here are generally applicable, but you might need to adjust them based on your specific OS.
 
 #### <a name="chapter1part5.2"></a>Chapter 1 - Part 5.2: Downloading and Extracting Kafka
 
+- **Download Kafka**: Visit the Apache Kafka downloads page (https://kafka.apache.org/downloads). Choose a binary download (e.g., kafka_2.13-3.6.0.tgz). The 2.13 refers to the Scala version Kafka was built with, and 3.6.0 is the Kafka version. Select the binary package, not the source package, unless you intend to build Kafka from source. It's generally recommended to download the latest stable version.
+
+- **Extract the Archive**: Once the download is complete, extract the archive to a directory of your choice. For example, on Linux or macOS, you can use the following command:
+
+```bash
+tar -xzf kafka_2.13-3.6.0.tgz
+```
+
+This will create a directory named kafka_2.13-3.6.0 containing all the Kafka binaries and configuration files.
+
 #### <a name="chapter1part5.3"></a>Chapter 1 - Part 5.3: Configuring Kafka
+
+Kafka's configuration is primarily managed through properties files. The most important file is server.properties, which configures the Kafka broker.
+
+- **Navigate to the Configuration Directory**: Go to the config directory inside your Kafka installation:
+
+```bash
+cd kafka_2.13-3.6.0/config
+```
+
+- **Edit server.properties**: Open the server.properties file in a text editor. Here are some key properties you might want to adjust:
+  - **broker.id**: A unique identifier for each broker in the Kafka cluster. For a single-broker setup, the default value of 0 is fine. In a multi-broker setup, each broker must have a different ID.
+  - **listeners**: The address the broker listens on. The default is PLAINTEXT://:9092. You can change the port if needed.
+  - **log.dirs**: The directory where Kafka stores its data. The default is /tmp/kafka-logs. Important: The /tmp directory is often cleared on system reboot, so for a more persistent setup, change this to a directory outside of /tmp. For example, you could create a directory kafka-data in your Kafka installation directory and set log.dirs=/path/to/kafka_2.13-3.6.0/kafka-data.
+  - **zookeeper.connect**: The address of the Zookeeper instance. The default is localhost:2181. Kafka uses Zookeeper to manage cluster metadata.
+ 
+Here's an example of a modified server.properties file:
+
+```
+broker.id=0
+listeners=PLAINTEXT://:9092
+log.dirs=/path/to/kafka_2.13-3.6.0/kafka-data
+zookeeper.connect=localhost:2181
+```
+
+Replace /path/to/kafka_2.13-3.6.0 with the actual path to your Kafka installation directory.
+
 
 #### <a name="chapter1part5.4"></a>Chapter 1 - Part 5.4: Starting Zookeeper
 
+Kafka relies on Zookeeper for managing cluster state and configuration. You need to start Zookeeper before starting the Kafka broker.
+
+- **Use the Provided Zookeeper Script**: Kafka comes with a Zookeeper instance that's suitable for development purposes. You can start it using the zookeeper-server-start.sh script located in the bin/zookeeper directory.
+
+```bash
+bin/zookeeper-server-start.sh config/zookeeper.properties
+```
+
+This command starts Zookeeper using the default configuration in config/zookeeper.properties. The default configuration is usually sufficient for local development.
+
+Note: Keep this terminal window open. Zookeeper needs to be running for Kafka to function.
+
 #### <a name="chapter1part5.5"></a>Chapter 1 - Part 5.5: Starting the Kafka Broker
+
+Once Zookeeper is running, you can start the Kafka broker.
+
+- **Use the Kafka Server Start Script**: Use the kafka-server-start.sh script located in the bin/kafka directory to start the Kafka broker.
+
+```bash
+bin/kafka-server-start.sh config/server.properties
+```
+
+This command starts the Kafka broker using the configuration in config/server.properties.
+
+Note: Keep this terminal window open as well. The Kafka broker needs to be running.
 
 #### <a name="chapter1part5.6"></a>Chapter 1 - Part 5.6: Creating a Kafka Topic
 
+Now that Kafka is running, you can create a topic. Topics are categories or feeds to which messages are published.
+
+- **Use the kafka-topics.sh Script**: The kafka-topics.sh script in the bin/kafka directory is used to manage Kafka topics.
+
+```bash
+bin/kafka-topics.sh --create --topic my-topic --partitions 1 --replication-factor 1 --bootstrap-server localhost:9092
+```
+
+Let's break down this command:
+
+- ```--create```: Specifies that you want to create a topic.
+- ```--topic my-topic```: Specifies the name of the topic to create (in this case, my-topic).
+- ```--partitions 1```: Specifies the number of partitions for the topic. Partitions allow you to parallelize consumption and increase throughput. For a local development environment, one partition is usually sufficient.
+- ```--replication-factor 1```: Specifies the number of replicas for each partition. Replication provides fault tolerance. For a single-broker setup, the replication factor must be 1.
+- ```--bootstrap-server localhost:9092```: Specifies the address of the Kafka broker to connect to.
+
+- **Verify Topic Creation**: You can verify that the topic was created successfully using the --list option:
+
+```bash
+bin/kafka-topics.sh --list --bootstrap-server localhost:9092
+```
+
+This command should output my-topic.
+
 #### <a name="chapter1part5.7"></a>Chapter 1 - Part 5.7: Producing Messages
+
+Now that you have a topic, you can start producing messages to it.
+
+- **Use the kafka-console-producer.sh Script**: The kafka-console-producer.sh script in the bin/kafka directory allows you to produce messages from the command line.
+
+```bash
+bin/kafka-console-producer.sh --topic my-topic --bootstrap-server localhost:9092
+```
+
+This command starts the console producer. You can now type messages into the console, and each line you type will be sent as a separate message to the my-topic topic.
+
+For example, type the following messages, pressing Enter after each one:
+
+```
+Hello, Kafka!
+This is a test message.
+```
+
+- **Stop the Producer**: Press Ctrl+C to stop the producer.
 
 #### <a name="chapter1part5.8"></a>Chapter 1 - Part 5.8: Consuming Messages
 
+Finally, you can consume the messages you produced to the topic.
+
+- **Use the kafka-console-consumer.sh Script**: The kafka-console-consumer.sh script in the bin/kafka directory allows you to consume messages from the command line.
+
+```bash
+bin/kafka-console-consumer.sh --topic my-topic --from-beginning --bootstrap-server localhost:9092
+```
+
+Let's break down this command:
+
+  - ```--topic my-topic```: Specifies the name of the topic to consume from.
+  - ```--from-beginning```: Specifies that you want to consume messages from the beginning of the topic. If you omit this option, the consumer will only receive new messages produced after it starts.
+  - ```--bootstrap-server localhost:9092```: Specifies the address of the Kafka broker to connect to.
+
+This command will print the messages you produced earlier to the console:
+
+```
+Hello, Kafka!
+This is a test message.
+```
+
+- **Stop the Consumer**: Press Ctrl+C to stop the consumer.
+
 #### <a name="chapter1part5.9"></a>Chapter 1 - Part 5.9: Stopping Kafka and Zookeeper
 
+When you're finished experimenting, you can stop the Kafka broker and Zookeeper.
+
+- **Stop the Kafka Broker**: Press Ctrl+C in the terminal window where the Kafka broker is running. Alternatively, you can use the kafka-server-stop.sh script in the bin/kafka directory:
+
+```bash
+bin/kafka-server-stop.sh
+```
+
+- **Stop Zookeeper**: Press Ctrl+C in the terminal window where Zookeeper is running. Alternatively, you can use the zookeeper-server-stop.sh script in the bin/zookeeper directory:
+
+```bash
+bin/zookeeper-server-stop.sh
+```
+
 #### <a name="chapter1part5.10"></a>Chapter 1 - Part 5.10: Alternative Setup using Docker
+
+For a more isolated and reproducible environment, you can use Docker to set up Kafka. In this example, we will integrate Kafka with Schema Registry and Kafka UI.
+
+- **Install Docker**: If you don't have Docker installed, download and install it from the Docker website (https://www.docker.com/).
+
+- **Create a folder structure**: Add this [docker-compose.yml](https://github.com/vitorstabile/kafka-basics/blob/main/docker-compose.yml) file with this [deploy](https://github.com/vitorstabile/kafka-basics/tree/main/deploy/Docker/schema-registry) folder inside.
+
+```
+kafka-docker/
+|
+|---deploy/Docker/schema-registry/jaasconfig/
+|---docker-compose.yml
+```
+
+- **Go to kafka-docker folder and make create the docker container**
+
+```
+cd kafka-docker
+docker-compose up -d --build --force-recreate zookeeper kafka schema-registry kafka-ui
+```
+
+- **Check if the docker is running**: Go to localhost:8080 and check if the Kafka is connected with Schema Registry and Kafka-UI I
 
 ## <a name="chapter2"></a>Chapter 2: Kafka Producers in Depth
 

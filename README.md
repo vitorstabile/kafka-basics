@@ -5702,27 +5702,789 @@ This configuration defines a File sink connector that consumes data from the "fi
 
 #### <a name="chapter5part4"></a>Chapter 5 - Part 4: Developing Custom Kafka Connectors
 
+Kafka Connect is a powerful tool for integrating Kafka with external systems. While many pre-built connectors exist, sometimes you need a custom solution tailored to your specific data source or sink. This lesson will guide you through the process of developing custom Kafka Connect connectors, enabling you to build robust and flexible data pipelines. We'll cover the essential components, configuration, and best practices for creating connectors that seamlessly integrate with your Kafka ecosystem.
+
 #### <a name="chapter5part4.1"></a>Chapter 5 - Part 4.1: Understanding the Kafka Connect API
+
+The Kafka Connect API provides the framework for building connectors. It defines the interfaces and abstract classes that your custom connectors must implement. The core components are:
+
+- **Connector**: This is the entry point for your connector. It's responsible for configuring and creating tasks. There are two types of connectors:
+  - Source Connector: Reads data from an external system and publishes it to Kafka topics.
+  - Sink Connector: Reads data from Kafka topics and writes it to an external system.
+ 
+- **Task**: Tasks are the actual workers that transfer data. A connector can create multiple tasks to parallelize data transfer. There are two types of tasks:
+  - Source Task: Reads data from a source and sends it to Kafka.
+  - Sink Task: Reads data from Kafka and writes it to a sink.
+ 
+- **Converter**: Converts data between Kafka Connect's internal representation and the format required by the external system. Kafka Connect provides built-in converters for common formats like JSON and Avro. You can also create custom converters for specific data formats.
+
+**Source Connector Example: Reading from a REST API**
+
+Let's imagine a scenario where you need to ingest data from a REST API into Kafka. The API returns JSON data, and you want to create a custom source connector to handle this.
+
+- **Connector Class**: Your connector class would implement the SourceConnector interface. It would be responsible for:
+  - Validating the connector's configuration.
+  - Determining the number of tasks to create based on the configuration (e.g., splitting the API calls based on date ranges).
+  - Creating and configuring the SourceTask instances.
+ 
+- **Task Class**: Your task class would implement the SourceTask interface. It would be responsible for:
+  - Making calls to the REST API.
+  - Transforming the JSON data into SourceRecord objects.
+  - Publishing the SourceRecord objects to Kafka.
+
+- **Converter**: You would likely use the built-in JsonConverter to convert the JSON data from the API into Kafka Connect's internal representation.
+
+**Sink Connector Example: Writing to a NoSQL Database**
+
+Now, consider a scenario where you want to consume data from Kafka and write it to a NoSQL database like MongoDB.
+
+- **Connector Class**: Your connector class would implement the SinkConnector interface. It would be responsible for:
+  - Validating the connector's configuration (e.g., database connection details).
+  - Determining the number of tasks to create (e.g., based on the number of Kafka partitions).
+  - Creating and configuring the SinkTask instances.
+
+- **Task Class**: Your task class would implement the SinkTask interface. It would be responsible for:
+  - Connecting to the MongoDB database.
+  - Reading SinkRecord objects from Kafka.
+  - Transforming the data in the SinkRecord objects into the format required by MongoDB.
+  - Writing the data to MongoDB.
+
+- **Converter**: You would use a converter (either built-in or custom) to deserialize the data from Kafka into a usable format for MongoDB. If the data in Kafka is in JSON format, you could use the JsonConverter.
+
+**Hypothetical Scenario: Integrating with a Proprietary System**
+
+Imagine a company uses a proprietary, in-house system for managing customer data. This system doesn't have a readily available Kafka Connect connector. To integrate this system with Kafka, you would need to develop a custom connector. This connector would likely involve:
+
+- Understanding the proprietary system's API or data access mechanisms.
+- Developing a custom SourceConnector to read data from the system and publish it to Kafka.
+- Developing a custom SinkConnector to consume data from Kafka and write it to the system.
+- Potentially creating custom converters to handle the data format used by the proprietary system.
 
 #### <a name="chapter5part4.2"></a>Chapter 5 - Part 4.2: Implementing a Custom Source Connector
 
+Let's walk through the steps of implementing a custom source connector. We'll use the REST API example from above. We'll focus on the core components and logic.
+
+**Project Setup**
+
+Create a new Java project (since the Kafka Connect API is primarily Java-based). Include the Kafka Connect API as a dependency in your pom.xml (if using Maven) or build.gradle (if using Gradle).
+
+```xml
+<!-- Maven Dependency -->
+<dependency>
+    <groupId>org.apache.kafka</groupId>
+    <artifactId>connect-api</artifactId>
+    <version>3.6.0</version> <!-- Use the Kafka version you are using -->
+</dependency>
+```
+
+**Connector Configuration**
+
+Define the configuration parameters for your connector. This will allow users to configure the connector when they deploy it.
+
+```java
+import org.apache.kafka.common.config.AbstractConfig;
+import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigDef.Importance;
+import org.apache.kafka.common.config.ConfigDef.Type;
+
+import java.util.Map;
+
+public class RestSourceConnectorConfig extends AbstractConfig {
+
+    public static final String API_URL_CONFIG = "rest.api.url";
+    private static final String API_URL_DOC = "The URL of the REST API.";
+
+    public static final String BATCH_SIZE_CONFIG = "batch.size";
+    private static final String BATCH_SIZE_DOC = "The number of records to fetch in each API call.";
+    private static final int BATCH_SIZE_DEFAULT = 100;
+
+    public RestSourceConnectorConfig(Map<?, ?> originals) {
+        super(configDef(), originals);
+    }
+
+    public static ConfigDef configDef() {
+        return new ConfigDef()
+                .define(API_URL_CONFIG, Type.STRING, Importance.HIGH, API_URL_DOC)
+                .define(BATCH_SIZE_CONFIG, Type.INT, BATCH_SIZE_DEFAULT, Importance.MEDIUM, BATCH_SIZE_DOC);
+    }
+
+    public String getApiUrl() {
+        return getString(API_URL_CONFIG);
+    }
+
+    public int getBatchSize() {
+        return getInt(BATCH_SIZE_CONFIG);
+    }
+}
+```
+
+**Implementing the SourceConnector**
+
+Create a class that extends org.apache.kafka.connect.connector.SourceConnector.
+
+```java
+import org.apache.kafka.connect.connector.SourceConnector;
+import org.apache.kafka.connect.connector.Task;
+import org.apache.kafka.connect.config.ConfigDef;
+import org.apache.kafka.connect.source.SourceTask;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class RestSourceConnector extends SourceConnector {
+
+    private RestSourceConnectorConfig config;
+    private Map<String, String> configProperties;
+
+    @Override
+    public String version() {
+        return "1.0"; // Replace with your connector version
+    }
+
+    @Override
+    public void start(Map<String, String> props) {
+        configProperties = props;
+        config = new RestSourceConnectorConfig(props);
+    }
+
+    @Override
+    public Class<? extends Task> taskClass() {
+        return RestSourceTask.class;
+    }
+
+    @Override
+    public List<Map<String, String>> taskConfigs(int maxTasks) {
+        List<Map<String, String>> taskConfigs = new ArrayList<>();
+        for (int i = 0; i < maxTasks; i++) {
+            taskConfigs.add(configProperties); // Pass the same configuration to all tasks
+        }
+        return taskConfigs;
+    }
+
+    @Override
+    public void stop() {
+        // Nothing to do here
+    }
+
+    @Override
+    public ConfigDef config() {
+        return RestSourceConnectorConfig.configDef();
+    }
+}
+```
+
+**Implementing the SourceTask**
+
+Create a class that extends org.apache.kafka.connect.source.SourceTask.
+
+```java
+import org.apache.kafka.connect.source.SourceTask;
+import org.apache.kafka.connect.source.SourceRecord;
+import org.apache.kafka.connect.data.Schema;
+import org.apache.kafka.connect.data.SchemaBuilder;
+import org.apache.kafka.connect.data.Struct;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Collections;
+import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.IntStream;
+
+import org.apache.kafka.connect.errors.ConnectException;
+
+public class RestSourceTask extends SourceTask {
+
+    private static final Logger log = LoggerFactory.getLogger(RestSourceTask.class);
+    private RestSourceConnectorConfig config;
+    private String apiUrl;
+    private int batchSize;
+    private int currentOffset = 0; // Simple offset for demonstration
+
+    private static final String OFFSET_KEY = "offset";
+
+    @Override
+    public String version() {
+        return "1.0"; // Replace with your connector version
+    }
+
+    @Override
+    public void start(Map<String, String> props) {
+        config = new RestSourceConnectorConfig(props);
+        apiUrl = config.getApiUrl();
+        batchSize = config.getBatchSize();
+    }
+
+    @Override
+    public List<SourceRecord> poll() throws InterruptedException {
+        try {
+            // Simulate fetching data from the REST API
+            List<Map<String, Object>> data = fetchDataFromApi(currentOffset, batchSize);
+
+            if (data.isEmpty()) {
+                // No more data, return an empty list
+                return Collections.emptyList();
+            }
+
+            List<SourceRecord> records = data.stream()
+                    .map(this::createSourceRecord)
+                    .collect(Collectors.toList());
+
+            // Update the offset
+            currentOffset += data.size();
+
+            return records;
+
+        } catch (Exception e) {
+            log.error("Error while polling data from the API: ", e);
+            throw new ConnectException("Exception during polling", e);
+        }
+    }
+
+    private List<Map<String, Object>> fetchDataFromApi(int offset, int batchSize) {
+        // In a real implementation, you would make an actual API call here.
+        // This is a placeholder for demonstration purposes.
+        // You would typically use a library like HttpClient to make the API call.
+
+        // Simulate data retrieval
+        return IntStream.range(offset, offset + batchSize)
+                .mapToObj(i -> {
+                    Map<String, Object> record = new HashMap<>();
+                    record.put("id", i);
+                    record.put("name", "Item " + i);
+                    record.put("value", Math.random());
+                    return record;
+                })
+                .limit(batchSize)
+                .collect(Collectors.toList());
+    }
+
+    private SourceRecord createSourceRecord(Map<String, Object> data) {
+        // Define the schema for the data
+        Schema valueSchema = SchemaBuilder.struct()
+                .field("id", Schema.INT32_SCHEMA)
+                .field("name", Schema.STRING_SCHEMA)
+                .field("value", Schema.FLOAT64_SCHEMA)
+                .build();
+
+        // Create a Struct object to hold the data
+        Struct value = new Struct(valueSchema)
+                .put("id", (Integer) data.get("id"))
+                .put("name", (String) data.get("name"))
+                .put("value", (Double) data.get("value"));
+
+        // Define the source partition and offset
+        Map<String, ?> sourcePartition = Collections.singletonMap("api", apiUrl);
+        Map<String, ?> sourceOffset = Collections.singletonMap(OFFSET_KEY, currentOffset);
+
+        // Create the SourceRecord
+        return new SourceRecord(
+                sourcePartition,
+                sourceOffset,
+                "rest-api-topic", // Replace with your Kafka topic name
+                valueSchema,
+                value
+        );
+    }
+
+    @Override
+    public void stop() {
+        // Clean up resources (e.g., close HTTP connections)
+    }
+}
+```
+
+**Packaging and Deploying the Connector**
+
+- **Package the connector**: Create a JAR file containing your connector code and its dependencies.
+- **Install the connector**: Copy the JAR file to the Kafka Connect plugin path (configured in your Kafka Connect properties file).
+- **Configure and start the connector**: Use the Kafka Connect REST API or command-line tools to configure and start your connector. You'll need to provide the connector's configuration properties, such as the API URL and batch size.
+
 #### <a name="chapter5part4.3"></a>Chapter 5 - Part 4.3: Implementing a Custom Sink Connector
+
+The process for implementing a custom sink connector is similar to that of a source connector. The main differences lie in the SinkConnector and SinkTask implementations.
+
+**Project Setup**
+
+Same as for the Source Connector.
+
+**Connector Configuration**
+
+Define the configuration parameters for your sink connector.
+
+```java
+import org.apache.kafka.common.config.AbstractConfig;
+import org.apache.kafka.common.config.ConfigDef;
+import org.apache.kafka.common.config.ConfigDef.Importance;
+import org.apache.kafka.common.config.ConfigDef.Type;
+
+import java.util.Map;
+
+public class MongoDBSinkConnectorConfig extends AbstractConfig {
+
+    public static final String MONGODB_URI_CONFIG = "mongodb.uri";
+    private static final String MONGODB_URI_DOC = "The URI of the MongoDB server.";
+
+    public static final String DATABASE_CONFIG = "mongodb.database";
+    private static final String DATABASE_DOC = "The MongoDB database name.";
+
+    public static final String COLLECTION_CONFIG = "mongodb.collection";
+    private static final String COLLECTION_DOC = "The MongoDB collection name.";
+
+    public MongoDBSinkConnectorConfig(Map<?, ?> originals) {
+        super(configDef(), originals);
+    }
+
+    public static ConfigDef configDef() {
+        return new ConfigDef()
+                .define(MONGODB_URI_CONFIG, Type.STRING, Importance.HIGH, MONGODB_URI_DOC)
+                .define(DATABASE_CONFIG, Type.STRING, Importance.HIGH, DATABASE_DOC)
+                .define(COLLECTION_CONFIG, Type.STRING, Importance.HIGH, COLLECTION_DOC);
+    }
+
+    public String getMongoDBUri() {
+        return getString(MONGODB_URI_CONFIG);
+    }
+
+    public String getDatabase() {
+        return getString(DATABASE_CONFIG);
+    }
+
+    public String getCollection() {
+        return getString(COLLECTION_CONFIG);
+    }
+}
+```
+
+**Implementing the SinkConnector**
+
+Create a class that extends org.apache.kafka.connect.connector.SinkConnector.
+
+```java
+import org.apache.kafka.connect.connector.SinkConnector;
+import org.apache.kafka.connect.connector.Task;
+import org.apache.kafka.connect.config.ConfigDef;
+import org.apache.kafka.connect.sink.SinkTask;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+public class MongoDBSinkConnector extends SinkConnector {
+
+    private MongoDBSinkConnectorConfig config;
+    private Map<String, String> configProperties;
+
+    @Override
+    public String version() {
+        return "1.0"; // Replace with your connector version
+    }
+
+    @Override
+    public void start(Map<String, String> props) {
+        configProperties = props;
+        config = new MongoDBSinkConnectorConfig(props);
+    }
+
+    @Override
+    public Class<? extends Task> taskClass() {
+        return MongoDBSinkTask.class;
+    }
+
+    @Override
+    public List<Map<String, String>> taskConfigs(int maxTasks) {
+        List<Map<String, String>> taskConfigs = new ArrayList<>();
+        for (int i = 0; i < maxTasks; i++) {
+            taskConfigs.add(configProperties); // Pass the same configuration to all tasks
+        }
+        return taskConfigs;
+    }
+
+    @Override
+    public void stop() {
+        // Nothing to do here
+    }
+
+    @Override
+    public ConfigDef config() {
+        return MongoDBSinkConnectorConfig.configDef();
+    }
+}
+```
+
+**Implementing the SinkTask**
+
+Create a class that extends org.apache.kafka.connect.sink.SinkTask.
+
+```java
+import com.mongodb.client.MongoClient;
+import com.mongodb.client.MongoClients;
+import com.mongodb.client.MongoCollection;
+import com.mongodb.client.MongoDatabase;
+import org.apache.kafka.connect.sink.SinkTask;
+import org.apache.kafka.connect.sink.SinkRecord;
+import org.bson.Document;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.Collection;
+import java.util.Map;
+
+import org.apache.kafka.connect.errors.ConnectException;
+
+public class MongoDBSinkTask extends SinkTask {
+
+    private static final Logger log = LoggerFactory.getLogger(MongoDBSinkTask.class);
+    private MongoDBSinkConnectorConfig config;
+    private MongoClient mongoClient;
+    private MongoDatabase database;
+    private MongoCollection<Document> collection;
+
+    @Override
+    public String version() {
+        return "1.0"; // Replace with your connector version
+    }
+
+    @Override
+    public void start(Map<String, String> props) {
+        config = new MongoDBSinkConnectorConfig(props);
+        String mongoUri = config.getMongoDBUri();
+        String databaseName = config.getDatabase();
+        String collectionName = config.getCollection();
+
+        try {
+            mongoClient = MongoClients.create(mongoUri);
+            database = mongoClient.getDatabase(databaseName);
+            collection = database.getCollection(collectionName);
+        } catch (Exception e) {
+            log.error("Error connecting to MongoDB: ", e);
+            throw new ConnectException("Could not connect to MongoDB", e);
+        }
+    }
+
+    @Override
+    public void put(Collection<SinkRecord> records) {
+        if (records.isEmpty()) {
+            return;
+        }
+
+        try {
+            for (SinkRecord record : records) {
+                // Convert the SinkRecord value to a Document
+                Document document = convertToDocument(record.value());
+
+                // Insert the document into MongoDB
+                collection.insertOne(document);
+            }
+        } catch (Exception e) {
+            log.error("Error writing to MongoDB: ", e);
+            throw new ConnectException("Exception while writing to MongoDB", e);
+        }
+    }
+
+    private Document convertToDocument(Object value) {
+        // This is a simplified example.  You'll likely need more sophisticated
+        // conversion logic based on your data's schema.
+        if (value instanceof Map) {
+            return new Document((Map<String, Object>) value);
+        } else {
+            // Handle other data types or throw an exception
+            throw new IllegalArgumentException("Unsupported data type: " + value.getClass().getName());
+        }
+    }
+
+    @Override
+    public void stop() {
+        if (mongoClient != null) {
+            mongoClient.close();
+        }
+    }
+}
+```
+
+**Packaging and Deploying the Connector**
+
+Same as for the Source Connector.
 
 #### <a name="chapter5part4.4"></a>Chapter 5 - Part 4.4: Data Conversion and Serialization
 
+Kafka Connect uses converters to transform data between the format used by the external system and Kafka's internal format. You can use built-in converters like JsonConverter, AvroConverter, and StringConverter, or create custom converters if needed.
+
+**Using Built-in Converters**
+
+To use a built-in converter, you need to configure it in your Kafka Connect worker configuration. For example, to use the JsonConverter for both keys and values:
+
+```
+key.converter=org.apache.kafka.connect.json.JsonConverter
+value.converter=org.apache.kafka.connect.json.JsonConverter
+key.converter.schemas.enable=false
+value.converter.schemas.enable=false
+```
+
+The schemas.enable property controls whether the converter includes schema information in the Kafka messages. Setting it to false results in a simpler JSON format.
+
+**Creating Custom Converters**
+
+If you need to handle a data format that isn't supported by the built-in converters, you can create a custom converter by implementing the org.apache.kafka.connect.converter.Converter interface.
+
+```java
+import org.apache.kafka.connect.converter.Converter;
+import org.apache.kafka.connect.data.Schema;
+import org.apache.kafka.connect.data.SchemaAndValue;
+import org.apache.kafka.common.config.ConfigDef;
+import java.util.Map;
+
+public class CustomConverter implements Converter {
+
+    @Override
+    public ConfigDef config() {
+        return new ConfigDef();
+    }
+
+    @Override
+    public void configure(Map<String, ?> configs, boolean isKey) {
+        // Configure the converter
+    }
+
+    @Override
+    public byte[] fromConnectData(String topic, Schema schema, Object value) {
+        // Convert Kafka Connect data to a byte array
+        return new byte[0]; // Replace with your conversion logic
+    }
+
+    @Override
+    public SchemaAndValue toConnectData(String topic, byte[] value) {
+        // Convert a byte array to Kafka Connect data
+        return new SchemaAndValue(null, null); // Replace with your conversion logic
+    }
+
+    @Override
+    public void close() {
+        // Close resources
+    }
+}
+```
+
 #### <a name="chapter5part4.5"></a>Chapter 5 - Part 4.5: Error Handling and Fault Tolerance
+
+Kafka Connect provides mechanisms for handling errors and ensuring fault tolerance.
+
+- **Retry Mechanism**: Kafka Connect automatically retries failed operations. You can configure the number of retries and the delay between retries.
+- **Dead Letter Queue (DLQ)**: You can configure a DLQ to store records that cannot be processed after multiple retries. This allows you to investigate and resolve the issues that are causing the failures.
+- **Error Handling in Tasks**: Your task implementations should handle exceptions gracefully and log errors appropriately. You can use try-catch blocks to catch exceptions and take appropriate actions, such as retrying the operation or sending the record to a DLQ.
 
 #### <a name="chapter5part6"></a>Chapter 5 - Part 6: Practical Exercise: Integrating a Database with Kafka using Kafka Connect
 
+Integrating a database with Kafka using Kafka Connect is a crucial skill for building robust data pipelines. Kafka Connect simplifies the process of streaming data between Kafka and other systems, such as databases, file systems, and cloud storage. This lesson will guide you through the practical steps of setting up a Kafka Connect connector to ingest data from a relational database into Kafka. We'll focus on the JDBC connector, a widely used and versatile option for database integration.
+
 #### <a name="chapter5part6.1"></a>Chapter 5 - Part 6.1: Setting Up the Environment
+
+Before diving into the practical exercise, ensure you have the following components set up and running:
+
+- **Kafka Cluster**: A running Kafka cluster is essential. You can use a local installation, a cloud-based Kafka service (e.g., Confluent Cloud, Amazon MSK), or a containerized solution like Docker.
+- **Kafka Connect**: Kafka Connect should be installed and configured to connect to your Kafka cluster. It's often included with Kafka distributions.
+- **Database**: You'll need a relational database (e.g., MySQL, PostgreSQL, SQL Server) with a table containing data to stream into Kafka.
+- **JDBC Driver**: Download the appropriate JDBC driver for your database and place it in the Kafka Connect plugin path. This path is defined in the plugin.path configuration option of your Kafka Connect worker configuration (e.g., connect-distributed.properties or connect-standalone.properties).
+
+**Example: Setting up a MySQL Database**
+
+Let's assume you're using a MySQL database. Here's how you can set up a simple table:
+
+```sql
+CREATE DATABASE IF NOT EXISTS kafka_connect_db;
+USE kafka_connect_db;
+
+CREATE TABLE IF NOT EXISTS customers (
+    id INT PRIMARY KEY AUTO_INCREMENT,
+    first_name VARCHAR(255),
+    last_name VARCHAR(255),
+    email VARCHAR(255),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO customers (first_name, last_name, email) VALUES
+('John', 'Doe', 'john.doe@example.com'),
+('Jane', 'Smith', 'jane.smith@example.com'),
+('Peter', 'Jones', 'peter.jones@example.com');
+```
 
 #### <a name="chapter5part6.2"></a>Chapter 5 - Part 6.2: Configuring the JDBC Source Connector
 
+The core of this exercise is configuring the JDBC source connector to read data from your database table and publish it to a Kafka topic. This involves creating a connector configuration file (typically in JSON format) that specifies the connection details, table to monitor, and other relevant settings.
+
+**Essential Configuration Parameters**
+
+Here's a breakdown of the key configuration parameters for the JDBC source connector:
+
+- **name**: A unique name for your connector.
+- **connector.class**: Specifies the connector class. For the JDBC source connector, this is usually io.confluent.connect.jdbc.JdbcSourceConnector or org.apache.kafka.connect.jdbc.JdbcSourceConnector (depending on the Kafka Connect distribution).
+- **connection.url**: The JDBC connection URL for your database. The format varies depending on the database type.
+  - Example (MySQL): jdbc:mysql://localhost:3306/kafka_connect_db
+  - Example (PostgreSQL): jdbc:postgresql://localhost:5432/kafka_connect_db
+ 
+- **connection.user**: The database username.
+- **connection.password**: The database password.
+- **table.whitelist**: A comma-separated list of tables to monitor for changes. Alternatively, you can use table.include.list.
+- **topic.prefix**: A prefix to add to the Kafka topic name. The connector will create topics based on the table names, prefixed with this value.
+- **mode**: Specifies how the connector should detect new or updated data. Common modes include:
+  - **incrementing**: Uses an incrementing column (e.g., an auto-incrementing ID) to detect new rows. Requires incrementing.column.name.
+  - **timestamp**: Uses a timestamp column to detect updated rows. Requires timestamp.column.name.
+  - **bulk**: Simply reads all data from the table on each poll. Not suitable for large tables or frequent updates.
+  - **timestamp+incrementing**: Combines both timestamp and incrementing modes. Requires both timestamp.column.name and incrementing.column.name.
+ 
+- **incrementing.column.name**: The name of the incrementing column (used with incrementing or timestamp+incrementing mode).
+- **timestamp.column.name**: The name of the timestamp column (used with timestamp or timestamp+incrementing mode).
+- **poll.interval.ms**: The frequency (in milliseconds) at which the connector polls the database for changes.
+- **batch.max.rows**: The maximum number of rows to include in a single batch when polling the database.
+- **validate.non.null**: Whether to validate that columns specified in incrementing.column.name and timestamp.column.name are non-null. Defaults to true.
+- **numeric.mapping**: How numeric values should be mapped. Can be best_fit (default), precision_only, or none.
+- **errors.tolerance**: Defines the behavior when the connector encounters an error. Can be none (fail immediately) or all (log the error and continue). Setting this to all is generally not recommended for production environments, as it can mask underlying issues.
+- **errors.log.enable**: Whether to enable logging of errors. Defaults to false.
+- **errors.log.include.messages**: Whether to include the error message in the log. Defaults to false.
+
+**Example Configuration File (MySQL, Incrementing Mode)**
+
+Here's an example configuration file (jdbc-source-customers.json) for a MySQL database, using incrementing mode:
+
+```json
+{
+  "name": "jdbc-source-customers",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+    "connection.url": "jdbc:mysql://localhost:3306/kafka_connect_db",
+    "connection.user": "your_user",
+    "connection.password": "your_password",
+    "table.whitelist": "customers",
+    "topic.prefix": "dbserver1.customers.",
+    "mode": "incrementing",
+    "incrementing.column.name": "id",
+    "poll.interval.ms": 5000,
+    "batch.max.rows": 100,
+    "validate.non.null": true
+  }
+}
+```
+
+Explanation:
+
+- **name**: The connector is named "jdbc-source-customers".
+- **connector.class**: Specifies the JDBC source connector class.
+- **connection.url**: Provides the connection string to the MySQL database. Replace your_user and your_password with your actual credentials.
+- **table.whitelist**: Indicates that the connector should monitor the "customers" table.
+- **topic.prefix**: The data will be written to a topic named dbserver1.customers.customers.
+- **mode**: Set to incrementing, meaning the connector will use an incrementing column to detect new rows.
+- **incrementing.column.name**: Specifies that the "id" column is the incrementing column.
+- **poll.interval.ms**: The connector will poll the database every 5 seconds.
+- **batch.max.rows**: Each poll will retrieve a maximum of 100 rows.
+- **validate.non.null**: Ensures that the id column is non-null.
+
+**Example Configuration File (PostgreSQL, Timestamp + Incrementing Mode)**
+
+Here's an example configuration file (jdbc-source-customers-ts.json) for a PostgreSQL database, using timestamp+incrementing mode:
+
+```json
+{
+  "name": "jdbc-source-customers-ts",
+  "config": {
+    "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+    "connection.url": "jdbc:postgresql://localhost:5432/kafka_connect_db",
+    "connection.user": "your_user",
+    "connection.password": "your_password",
+    "table.whitelist": "customers",
+    "topic.prefix": "dbserver1.customers.",
+    "mode": "timestamp+incrementing",
+    "incrementing.column.name": "id",
+    "timestamp.column.name": "created_at",
+    "poll.interval.ms": 5000,
+    "batch.max.rows": 100,
+    "validate.non.null": true
+  }
+}
+```
+
+Explanation:
+
+- Most parameters are the same as the MySQL example.
+- **connection.url**: Provides the connection string to the PostgreSQL database. Replace your_user and your_password with your actual credentials.
+- **mode**: Set to timestamp+incrementing, meaning the connector will use both a timestamp and an incrementing column to detect new and updated rows.
+- **incrementing.column.name**: Specifies that the "id" column is the incrementing column.
+- **timestamp.column.name**: Specifies that the "created_at" column is the timestamp column.
+
 #### <a name="chapter5part6.3"></a>Chapter 5 - Part 6.3: Deploying the Connector
+
+Once you have created the configuration file, you can deploy the connector using the Kafka Connect REST API.
+
+**Using the Kafka Connect REST API**
+
+The Kafka Connect REST API allows you to manage connectors programmatically. You can use curl or any other HTTP client to interact with the API.
+
+**Deploying a Connector:**
+
+```bash
+curl -X POST -H "Content-Type: application/json" \
+     -d @jdbc-source-customers.json \
+     http://localhost:8083/connectors
+```
+
+Replace http://localhost:8083 with the address of your Kafka Connect worker.
+
+**Checking Connector Status:**
+
+```bash
+curl http://localhost:8083/connectors/jdbc-source-customers/status
+```
+
+This command will return a JSON response containing the connector's status, including its current state (e.g., RUNNING, FAILED) and any error messages.
+
+**Deleting a Connector:**
+
+```bash
+curl -X DELETE http://localhost:8083/connectors/jdbc-source-customers
+```
 
 #### <a name="chapter5part6.4"></a>Chapter 5 - Part 6.4: Verifying Data in Kafka
 
+After deploying the connector, verify that data is being streamed from your database to Kafka. You can use the Kafka console consumer or a Kafka client application to consume messages from the topic.
+
+**Using the Kafka Console Consumer**
+
+The Kafka console consumer is a simple command-line tool for consuming messages from a Kafka topic.
+
+```bash
+kafka-console-consumer --bootstrap-server localhost:9092 \
+                         --topic dbserver1.customers.customers \
+                         --from-beginning \
+                         --property print.key=true \
+                         --property value.deserializer=org.apache.kafka.common.serialization.StringDeserializer \
+                         --property key.deserializer=org.apache.kafka.common.serialization.StringDeserializer
+```
+
+**Explanation:**
+
+- **```--bootstrap-server```**: Specifies the Kafka broker address.
+- **```--topic```**: The name of the topic to consume from.
+- **```--from-beginning```**: Starts consuming from the beginning of the topic.
+- **```--property print.key=true```**: Prints the message key (if any).
+- **```--property value.deserializer```**: Specifies the deserializer for the message value. Since the default is ByteArrayDeserializer, and we expect a string, we need to specify StringDeserializer.
+- **```--property key.deserializer```**: Specifies the deserializer for the message key. Since the default is ByteArrayDeserializer, and we expect a string, we need to specify StringDeserializer.
+
+You should see messages representing the rows from your customers table being printed to the console. The format of the messages will depend on the connector's configuration and the data types of the table columns. By default, the JDBC connector uses a JSON converter.
+
 #### <a name="chapter5part6.5"></a>Chapter 5 - Part 6.5: Handling Data Updates
+
+The JDBC source connector can also handle data updates in your database. When a row is updated, the connector will publish a new message to the Kafka topic with the updated data. The key of the message will typically be the primary key of the table.
+
+To test this, update a row in your customers table:
+
+```sql
+UPDATE customers SET email = 'john.updated@example.com' WHERE id = 1;
+```
+
+After the connector polls the database again (based on the poll.interval.ms setting), you should see a new message in the Kafka topic with the updated email address for John Doe.
 
 ## <a name="chapter6"></a>Chapter 6: Kafka Security and Monitoring
 

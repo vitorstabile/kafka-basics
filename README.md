@@ -135,6 +135,11 @@
       - [Chapter 5 - Part 4.3: Implementing a Custom Sink Connector](#chapter5part4.3)
       - [Chapter 5 - Part 4.4: Data Conversion and Serialization](#chapter5part4.4)
       - [Chapter 5 - Part 4.5: Error Handling and Fault Tolerance](#chapter5part4.5)
+    - [Chapter 5 - Part 5: Monitoring and Managing Kafka Connect Connectors](#chapter5part5)
+      - [Chapter 5 - Part 5.1: Core Concepts of Monitoring Kafka Connect](#chapter5part5.1)
+      - [Chapter 5 - Part 5.2: Tools and Techniques for Monitoring](#chapter5part5.2)
+      - [Chapter 5 - Part 5.3: Managing Kafka Connect Connectors](#chapter5part5.3)
+      - [Chapter 5 - Part 5.4: Real-World Application](#chapter5part5.4)
     - [Chapter 5 - Part 6: Practical Exercise: Integrating a Database with Kafka using Kafka Connect](#chapter5part6)
       - [Chapter 5 - Part 6.1: Setting Up the Environment](#chapter5part6.1)
       - [Chapter 5 - Part 6.2: Configuring the JDBC Source Connector](#chapter5part6.2)
@@ -6276,6 +6281,263 @@ Kafka Connect provides mechanisms for handling errors and ensuring fault toleran
 - **Retry Mechanism**: Kafka Connect automatically retries failed operations. You can configure the number of retries and the delay between retries.
 - **Dead Letter Queue (DLQ)**: You can configure a DLQ to store records that cannot be processed after multiple retries. This allows you to investigate and resolve the issues that are causing the failures.
 - **Error Handling in Tasks**: Your task implementations should handle exceptions gracefully and log errors appropriately. You can use try-catch blocks to catch exceptions and take appropriate actions, such as retrying the operation or sending the record to a DLQ.
+
+#### <a name="chapter5part5"></a>Chapter 5 - Part 5: Monitoring and Managing Kafka Connect Connectors
+
+Monitoring and managing Kafka Connect connectors is crucial for ensuring reliable data integration pipelines. Without proper monitoring, you might miss critical issues like connector failures, data transformation errors, or performance bottlenecks. Effective management allows you to respond quickly to these issues, minimizing downtime and data loss. This lesson will cover the essential techniques and tools for monitoring and managing your Kafka Connect connectors, enabling you to maintain a healthy and efficient data integration system.
+
+#### <a name="chapter5part5.1"></a>Chapter 5 - Part 5.1: Core Concepts of Monitoring Kafka Connect
+
+Monitoring Kafka Connect involves tracking various metrics and logs to understand the health and performance of your connectors. Key concepts include:
+
+- **Connector State**: The overall status of a connector (e.g., RUNNING, FAILED, PAUSED).
+- **Task State**: The status of individual tasks within a connector. A connector can have multiple tasks for parallel processing.
+- **Metrics**: Numerical data points that provide insights into connector performance, such as record counts, latency, and error rates.
+- **Logs**: Textual records of events and errors that occur during connector operation.
+
+**Connector and Task States**
+
+Understanding the different states a connector and its tasks can be in is fundamental to monitoring.
+
+- **RUNNING**: The connector or task is actively processing data.
+- **FAILED**: The connector or task has encountered an error and stopped.
+- **PAUSED**: The connector or task has been manually paused and is not processing data.
+- **UNASSIGNED**: The task has not yet been assigned to a worker.
+- **RESTARTING**: The connector or task is in the process of restarting.
+
+**Example**: Imagine a JDBC source connector pulling data from a database. If the database server becomes unavailable, the connector might transition to the FAILED state. Similarly, if a specific task within the connector encounters a data conversion error, that task might enter the FAILED state while other tasks continue to run.
+
+**Key Metrics for Monitoring**
+
+Several key metrics provide valuable insights into the performance and health of Kafka Connect connectors.
+
+- **Record Count**: The number of records processed by the connector. This helps you track data throughput.
+- **Record Latency**: The time it takes for a record to be processed from source to sink. High latency can indicate performance bottlenecks.
+- **Error Count**: The number of errors encountered during data processing. This helps you identify issues with data quality or connector configuration.
+- **Offset Commit Latency**: The time it takes for the connector to commit offsets to Kafka. High latency can lead to duplicate data processing.
+- **Connector Uptime**: The duration for which the connector has been running without interruption.
+
+**Example**: Consider a file source connector reading data from log files. Monitoring the record count can help you ensure that all log data is being ingested into Kafka. Monitoring the error count can alert you to issues with malformed log entries that the connector is unable to process.
+
+**Logging**
+
+Logs provide detailed information about connector behavior, including errors, warnings, and informational messages. Analyzing logs is essential for troubleshooting issues and understanding connector performance.
+
+- **Connector Logs**: Logs generated by the connector itself, providing information about its overall operation.
+- **Worker Logs**: Logs generated by the Kafka Connect worker process, providing information about the execution of connectors and tasks.
+
+**Example**: If a connector fails to connect to a database, the connector logs will likely contain error messages indicating the connection failure. Similarly, if a task encounters a serialization error, the worker logs will contain details about the error and the affected data.
+
+#### <a name="chapter5part5.2"></a>Chapter 5 - Part 5.2: Tools and Techniques for Monitoring
+
+Several tools and techniques can be used to monitor Kafka Connect connectors.
+
+- **Kafka Connect REST API**: Provides endpoints for retrieving connector status, configuration, and metrics.
+- **JMX (Java Management Extensions)**: Exposes connector metrics that can be monitored using JMX monitoring tools.
+- **Metrics Reporting Tools**: Tools like Prometheus and Grafana can be used to collect and visualize connector metrics.
+- **Log Aggregation Tools**: Tools like Elasticsearch, Logstash, and Kibana (ELK stack) can be used to aggregate and analyze connector logs.
+
+**Kafka Connect REST API**
+
+The Kafka Connect REST API is a built-in tool for monitoring and managing connectors. It allows you to retrieve connector status, configuration, and metrics using HTTP requests.
+
+**Example**: To get the status of a connector named my-jdbc-connector, you can use the following command:
+
+```bash
+curl http://localhost:8083/connectors/my-jdbc-connector/status
+```
+
+The response will be a JSON object containing the connector's state, tasks, and any errors.
+
+```json
+{
+  "name": "my-jdbc-connector",
+  "connector": {
+    "state": "RUNNING",
+    "worker_id": "connect-1:8083"
+  },
+  "tasks": [
+    {
+      "id": 0,
+      "state": "RUNNING",
+      "worker_id": "connect-1:8083"
+    }
+  ],
+  "type": "source"
+}
+```
+
+You can also retrieve connector configuration using the API:
+
+```bash
+curl http://localhost:8083/connectors/my-jdbc-connector/config
+```
+
+**JMX Monitoring**
+
+Kafka Connect exposes metrics through JMX, which can be monitored using JMX monitoring tools like JConsole or VisualVM.
+
+**Example**: You can use JConsole to connect to the Kafka Connect worker process and browse the available JMX metrics. Look for metrics under the kafka.connect domain. These metrics provide detailed information about connector performance, such as record counts, latency, and error rates.
+
+**Metrics Reporting with Prometheus and Grafana**
+
+Prometheus is a popular open-source monitoring solution that can be used to collect metrics from Kafka Connect. Grafana is a data visualization tool that can be used to create dashboards and visualize the metrics collected by Prometheus.
+
+**Steps:**
+
+- **Configure Prometheus to scrape Kafka Connect metrics**: You'll need to configure Prometheus to scrape the JMX exporter endpoint of your Kafka Connect workers. This involves adding a job to your prometheus.yml configuration file.
+- **Install and configure the JMX exporter**: The JMX exporter exposes JMX metrics in a format that Prometheus can understand. You can run the JMX exporter as a Java agent alongside your Kafka Connect workers.
+- **Create Grafana dashboards**: Once Prometheus is collecting metrics, you can create Grafana dashboards to visualize the data. You can create custom dashboards or use pre-built dashboards for Kafka Connect.
+
+**Example Prometheus Configuration (prometheus.yml):**
+
+```yaml
+scrape_configs:
+  - job_name: 'kafka-connect'
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['connect-1:9999', 'connect-2:9999'] # Replace with your Kafka Connect worker addresses
+```
+
+**Example JMX Exporter Configuration (config.yml):**
+
+```yaml
+---
+lowercaseOutputName: true
+lowercaseOutputLabelNames: true
+rules:
+- pattern: "kafka.connect<type=connector-task-metrics, connector=([^,]+), task=([^,]+), attribute=([^>]+)><>Value"
+  name: kafka_connect_connector_task_{attribute}
+  labels:
+    connector: "$1"
+    task: "$2"
+- pattern: "kafka.connect<type=connector-metrics, connector=([^,]+), attribute=([^>]+)><>Value"
+  name: kafka_connect_connector_{attribute}
+  labels:
+    connector: "$1"
+```
+
+This configuration file tells the JMX exporter to extract metrics from the kafka.connect domain and expose them in a format that Prometheus can understand.
+
+**Log Aggregation with ELK Stack**
+
+The ELK stack (Elasticsearch, Logstash, and Kibana) is a popular open-source log management platform that can be used to aggregate and analyze Kafka Connect logs.
+
+**Steps:**
+
+- **Configure Logstash to collect logs**: You'll need to configure Logstash to collect logs from your Kafka Connect workers. This involves creating a Logstash configuration file that specifies the input, filter, and output plugins.
+- **Configure Elasticsearch to store logs**: Elasticsearch is a search and analytics engine that stores the logs collected by Logstash.
+- **Use Kibana to visualize logs**: Kibana is a data visualization tool that allows you to search, analyze, and visualize the logs stored in Elasticsearch.
+
+**Example Logstash Configuration (logstash.conf):**
+
+```
+input {
+  file {
+    path => "/path/to/kafka-connect-worker.log" # Replace with your Kafka Connect worker log file
+    start_position => "beginning"
+    sincedb_path => "/dev/null"
+  }
+}
+filter {
+  grok {
+    match => { "message" => "%{TIMESTAMP_ISO8601:timestamp} %{LOGLEVEL:level} %{DATA:logger} - %{GREEDYDATA:message}" }
+  }
+  date {
+    match => [ "timestamp", "ISO8601" ]
+    target => "@timestamp"
+  }
+}
+output {
+  elasticsearch {
+    hosts => ["http://localhost:9200"] # Replace with your Elasticsearch address
+    index => "kafka-connect-logs-%{+YYYY.MM.dd}"
+  }
+}
+```
+
+This configuration file tells Logstash to read logs from the specified file, parse them using Grok, and send them to Elasticsearch.
+
+#### <a name="chapter5part5.3"></a>Chapter 5 - Part 5.3: Managing Kafka Connect Connectors
+
+Managing Kafka Connect connectors involves tasks such as starting, stopping, pausing, resuming, and updating connectors.
+
+**Starting and Stopping Connectors**
+
+You can start and stop connectors using the Kafka Connect REST API.
+
+**Example**: To start a connector named my-jdbc-connector, you can use the following command:
+
+```bash
+curl -X PUT http://localhost:8083/connectors/my-jdbc-connector/resume
+```
+
+To stop a connector, you can use the following command:
+
+```bash
+curl -X PUT http://localhost:8083/connectors/my-jdbc-connector/pause
+```
+
+To completely delete a connector, use:
+
+```bash
+curl -X DELETE http://localhost:8083/connectors/my-jdbc-connector
+```
+
+**Pausing and Resuming Connectors**
+
+Pausing a connector temporarily stops data processing without deleting the connector. Resuming a connector restarts data processing from where it left off.
+
+**Example**: To pause a connector named my-jdbc-connector, you can use the following command:
+
+```bash
+curl -X PUT http://localhost:8083/connectors/my-jdbc-connector/pause
+```
+
+To resume a connector, you can use the following command:
+
+```bash
+curl -X PUT http://localhost:8083/connectors/my-jdbc-connector/resume
+```
+
+**Updating Connector Configuration**
+
+You can update the configuration of a connector using the Kafka Connect REST API.
+
+Example: To update the configuration of a connector named my-jdbc-connector, you can use the following command:
+
+```bash
+curl -X PUT -H "Content-Type: application/json" -d '{
+  "connector.class": "io.confluent.connect.jdbc.JdbcSourceConnector",
+  "connection.url": "jdbc:postgresql://localhost:5432/mydatabase",
+  "connection.user": "myuser",
+  "connection.password": "mypassword",
+  "table.whitelist": "mytable",
+  "topic.prefix": "mytopic-"
+}' http://localhost:8083/connectors/my-jdbc-connector/config
+```
+
+This command updates the connector's configuration with the provided JSON object. The connector will be automatically restarted with the new configuration.
+
+**Restarting Failed Tasks**
+
+If a task within a connector fails, you can restart it using the Kafka Connect REST API.
+
+Example: To restart task 0 of a connector named my-jdbc-connector, you can use the following command:
+
+```bash
+curl -X POST http://localhost:8083/connectors/my-jdbc-connector/tasks/0/restart
+```
+
+This command restarts the specified task.
+
+#### <a name="chapter5part5.4"></a>Chapter 5 - Part 5.4: Real-World Application
+
+Consider an e-commerce company that uses Kafka Connect to integrate data from various sources, including databases, log files, and third-party APIs. They use a JDBC source connector to ingest customer order data from a PostgreSQL database, a file source connector to ingest website access logs, and an HTTP source connector to ingest product catalog data from a third-party API.
+
+To ensure the reliability of their data integration pipelines, the company implements comprehensive monitoring and management practices. They use Prometheus and Grafana to monitor key metrics such as record count, latency, and error rate. They also use the ELK stack to aggregate and analyze connector logs.
+
+If a connector fails, they receive an alert and can quickly diagnose the issue by examining the logs. They can then restart the connector or update its configuration as needed. By proactively monitoring and managing their Kafka Connect connectors, the company can ensure that their data integration pipelines are running smoothly and reliably.
 
 #### <a name="chapter5part6"></a>Chapter 5 - Part 6: Practical Exercise: Integrating a Database with Kafka using Kafka Connect
 
